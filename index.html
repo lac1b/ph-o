@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pháo hoa mờ ảo</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #05060a;
+        overflow: hidden;
+        font-family: system-ui, Segoe UI, Roboto, sans-serif;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        display: block;
+      }
+      .ui {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        z-index: 10;
+        color: #e7ecff;
+        background: rgba(12, 14, 24, 0.3);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-size: 12px;
+        user-select: none;
+      }
+      .ui label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0;
+      }
+      .ui input[type="range"] {
+        width: 140px;
+      }
+      .hint {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        color: #95a0ff80;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div class="ui">
+      <div style="font-weight: 600; margin-bottom: 6px">Pháo hoa mờ ảo</div>
+      <label><input id="auto" type="checkbox" checked /> Tự bắn</label>
+      <label
+        >Độ mờ
+        <input id="blur" type="range" min="0" max="1" step="0.01" value="0.5"
+      /></label>
+      <label
+        >Mật độ
+        <input id="dens" type="range" min="0.4" max="2" step="0.1" value="1"
+      /></label>
+    </div>
+    <div class="hint">Nhấp chuột để bắn pháo ✨</div>
+
+    <script>
+      (() => {
+        const canvas = document.getElementById("c");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1)); // giữ hiệu năng
+        let W = 0,
+          H = 0;
+        function resize() {
+          W = Math.floor(innerWidth * DPR);
+          H = Math.floor(innerHeight * DPR);
+          canvas.width = W;
+          canvas.height = H;
+          canvas.style.width = innerWidth + "px";
+          canvas.style.height = innerHeight + "px";
+          // nền gradient đêm
+          const g = ctx.createLinearGradient(0, 0, 0, H);
+          g.addColorStop(0, "#05060a");
+          g.addColorStop(0.6, "#090a14");
+          g.addColorStop(1, "#0b0d18");
+          bgFill = g;
+        }
+        window.addEventListener("resize", resize);
+        let bgFill;
+        resize();
+
+        // UI
+        const auto = document.getElementById("auto");
+        const blurSlider = document.getElementById("blur");
+        const densSlider = document.getElementById("dens");
+
+        // Bokeh nhẹ nhàng bay nền
+        const bokehs = [];
+        function initBokeh() {
+          bokehs.length = 0;
+          const n = Math.round(
+            (30 * (innerWidth * innerHeight)) / (1280 * 720)
+          );
+          for (let i = 0; i < n; i++) {
+            bokehs.push({
+              x: Math.random() * W,
+              y: Math.random() * H,
+              r: (8 + Math.random() * 28) * DPR,
+              a: 0.04 + Math.random() * 0.08,
+              vx: (-0.2 + Math.random() * 0.4) * DPR,
+              vy: (-0.15 + Math.random() * 0.3) * DPR,
+            });
+          }
+        }
+        initBokeh();
+
+        // Pháo hoa
+        const fireworks = [];
+        const particles = [];
+        const gravity = 0.08 * DPR;
+        const airDrag = 0.988;
+
+        function pastel() {
+          // tông pastel dịu
+          const h = Math.random() * 360;
+          const s = 60 + Math.random() * 25; // %
+          const l = 55 + Math.random() * 15; // %
+          return `hsl(${h.toFixed(0)} ${s.toFixed(0)}% ${l.toFixed(0)}%)`;
+        }
+
+        function spawnFirework(x, y) {
+          const density = parseFloat(densSlider.value);
+          // tia bay lên
+          fireworks.push({
+            x,
+            y: H,
+            vx: (Math.random() * 1 - 0.5) * 0.5 * DPR,
+            vy: (-7 - Math.random() * 3) * DPR,
+            color: pastel(),
+            exploded: false,
+            fuse: 30 + Math.random() * 25,
+          });
+          // điểm nổ mục tiêu
+          fireworks[fireworks.length - 1].tx =
+            x + (Math.random() * 2 - 1) * 60 * DPR;
+          fireworks[fireworks.length - 1].ty =
+            y + (Math.random() * 2 - 1) * 40 * DPR;
+
+          // hẹn nổ (hạt)
+          const count = Math.round(140 * density);
+          const hueColor = pastel();
+          const speed = 2.6 * DPR;
+          const spread = Math.PI * 2;
+          for (let i = 0; i < count; i++) {
+            const a = (i / count) * spread + Math.random() * 0.02;
+            const sp = speed * (0.4 + Math.random() * 1.2);
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * sp,
+              vy: Math.sin(a) * sp - 0.6 * DPR,
+              life: 80 + Math.random() * 60,
+              color: hueColor,
+              size: 1.2 * DPR + Math.random() * 1.6 * DPR,
+              trailX: x,
+              trailY: y,
+              sparkle: Math.random() < 0.5,
+              alpha: 1,
+            });
+          }
+          // vòng halo mờ
+          for (let i = 0; i < 40 * density; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = (10 + Math.random() * 25) * DPR;
+            particles.push({
+              x,
+              y,
+              vx: Math.cos(a) * r * 0.05,
+              vy: Math.sin(a) * r * 0.05,
+              life: 40 + Math.random() * 30,
+              color: hueColor,
+              size: 2.5 * DPR + Math.random() * 2 * DPR,
+              trailX: x,
+              trailY: y,
+              sparkle: false,
+              alpha: 0.7,
+            });
+          }
+        }
+
+        // Auto spawn
+        let t = 0;
+        function autoSpawn(dt) {
+          if (!auto.checked) return;
+          t += dt;
+          const interval = 850 + Math.random() * 700;
+          if (t > interval) {
+            t = 0;
+            const x = (0.15 + Math.random() * 0.7) * W;
+            const y = (0.15 + Math.random() * 0.45) * H;
+            spawnFirework(x, y);
+          }
+        }
+
+        // Vẽ bokeh
+        function drawBokeh() {
+          ctx.save();
+          ctx.globalCompositeOperation = "screen";
+          for (const b of bokehs) {
+            b.x += b.vx;
+            b.y += b.vy;
+            if (b.x < -50 || b.x > W + 50 || b.y < -50 || b.y > H + 50) {
+              b.x = Math.random() * W;
+              b.y = Math.random() * H;
+            }
+            const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+            g.addColorStop(0, `rgba(150,160,255,${b.a})`);
+            g.addColorStop(1, `rgba(50,60,120,0)`);
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        // Vòng lặp
+        let last = performance.now();
+        function loop(now) {
+          const dt = now - last;
+          last = now;
+
+          // làm mờ khung trước để giữ vệt (motion trail)
+          const blurStrength = parseFloat(blurSlider.value);
+          ctx.globalCompositeOperation = "source-over";
+          ctx.fillStyle = bgFill;
+          ctx.globalAlpha = 1 - (0.08 + blurStrength * 0.1);
+          ctx.fillRect(0, 0, W, H);
+          ctx.globalAlpha = 1;
+
+          // bokeh nền
+          drawBokeh();
+
+          // pháo bay lên (chỉ để vẽ sáng)
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          for (let i = fireworks.length - 1; i >= 0; i--) {
+            const f = fireworks[i];
+            if (!f.exploded) {
+              f.fuse -= 1;
+              f.x += f.vx;
+              f.y += f.vy;
+              f.vy += gravity * 0.25;
+              // vệt sáng
+              ctx.shadowBlur = 18 * DPR;
+              ctx.shadowColor = f.color;
+              ctx.fillStyle = f.color;
+              ctx.beginPath();
+              ctx.arc(f.x, f.y, 2.2 * DPR, 0, Math.PI * 2);
+              ctx.fill();
+              if (f.fuse <= 0 || f.y < H * 0.25 + Math.random() * H * 0.2) {
+                f.exploded = true;
+                spawnFirework(f.x, f.y);
+              }
+            } else {
+              fireworks.splice(i, 1);
+            }
+          }
+          ctx.restore();
+
+          // hạt pháo
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.trailX = p.x;
+            p.trailY = p.y;
+            p.vx *= airDrag;
+            p.vy *= airDrag;
+            p.vy += gravity;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 1;
+            if (p.sparkle && Math.random() < 0.2) {
+              // lấp lánh
+              p.alpha = 0.6 + Math.random() * 0.4;
+            } else {
+              p.alpha *= 0.985;
+            }
+            // vệt
+            ctx.strokeStyle = p.color;
+            ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+            ctx.lineWidth = p.size * 0.6;
+            ctx.shadowBlur = 22 * DPR;
+            ctx.shadowColor = p.color;
+            ctx.beginPath();
+            ctx.moveTo(p.trailX, p.trailY);
+            ctx.lineTo(p.x, p.y);
+            ctx.stroke();
+
+            // hạt lõi
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.fill();
+
+            if (p.life <= 0 || p.alpha < 0.03 || p.y > H + 40 * DPR) {
+              particles.splice(i, 1);
+            }
+          }
+          ctx.restore();
+
+          // halo mờ tổng thể (bloom giả lập bằng phóng to/thu nhỏ)
+          if (blurStrength > 0) {
+            const scale = 1 - blurStrength * 0.08; // 0.92..1
+            const w = W * scale,
+              h = H * scale;
+            const ox = (W - w) / 2,
+              oy = (H - h) / 2;
+            ctx.globalCompositeOperation = "screen";
+            ctx.globalAlpha = 0.25 * blurStrength;
+            ctx.drawImage(canvas, 0, 0, W, H, ox, oy, w, h);
+            ctx.globalAlpha = 1;
+          }
+
+          autoSpawn(dt);
+          requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+
+        // Tương tác
+        window.addEventListener(
+          "pointerdown",
+          (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * DPR;
+            const y = (e.clientY - rect.top) * DPR;
+            spawnFirework(x, y);
+          },
+          { passive: true }
+        );
+
+        // Chạm giữ để spam
+        let holdInterval = null;
+        window.addEventListener("pointerdown", () => {
+          if (holdInterval) return;
+          holdInterval = setInterval(() => {
+            const x = (0.15 + Math.random() * 0.7) * W;
+            const y = (0.15 + Math.random() * 0.45) * H;
+            spawnFirework(x, y);
+          }, 220);
+        });
+        window.addEventListener("pointerup", () => {
+          clearInterval(holdInterval);
+          holdInterval = null;
+        });
+        window.addEventListener("blur", () => {
+          clearInterval(holdInterval);
+          holdInterval = null;
+        });
+      })();
+    </script>
+  </body>
+</html>
